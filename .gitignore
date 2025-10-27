@@ -1,1 +1,3 @@
+pycache/ .py[cod] .ipynb_checkpoints/ .venv/ env/ venv/ .env .DS_Store .log data/ data/raw/ models/ outputs/ .h5 .pt .ckpt .sqlite .db .idea/ .vscode/
+
 
