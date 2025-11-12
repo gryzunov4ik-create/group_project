@@ -73,15 +73,11 @@ def extract_stars_from_html(html_row):
 # ОСНОВНОЙ СКРИПТ
 # ------------------------------
 
-# 1. Сбор всех ссылок
 links = set()
 for entry in ENTRY_PAGES:
     url = WIKI_BASE + entry
-    print(f"Парсим: {entry}")
     try:
-        r = requests.get(url, headers=HEADERS, timeout=25)
-        if r.status_code != 200:
-            continue
+        r = requests.get(url, headers=HEADERS, timeout=20)
         soup = BeautifulSoup(r.text, "html.parser")
         for a in soup.find_all("a", href=True):
             href = a["href"]
@@ -91,39 +87,20 @@ for entry in ENTRY_PAGES:
         pass
     time.sleep(0.1)
 
-links = sorted(list(links))
-print(f"Найдено ссылок: {len(links)}")
-
-# 2. Фильтрация по Европе
 filtered = []
 for l in links:
     l_norm = l.lower().replace("-", "_")
-    country_ok = any(c.lower().replace(" ", "_") in l_norm for c in EU_COUNTRIES)
-    city_ok = any(city.lower().replace(" ", "_") in l_norm for city in BIG_CITIES)
-    if country_ok or city_ok:
+    if any(c.lower().replace(" ", "_") in l_norm for c in EU_COUNTRIES) \
+       or any(city.lower().replace(" ", "_") in l_norm for city in BIG_CITIES):
         filtered.append(l)
 
-print(f"Европейских страниц: {len(filtered)}")
-
-# 3. Сбор таблиц с ресторанов
 all_parts = []
-
-for i, href in enumerate(filtered, start=1):
+for href in filtered:
     page_url = WIKI_BASE + href
-    context = href.split("/")[-1].replace("_", " ")
-    print(f"{i}/{len(filtered)}: {context}")
-
     try:
-        r = requests.get(page_url, headers=HEADERS, timeout=30)
-        if r.status_code != 200:
-            print("Не удалось получить страницу")
-            continue
+        r = requests.get(page_url, headers=HEADERS, timeout=25)
         soup = BeautifulSoup(r.text, "html.parser")
         tables = soup.find_all("table", class_="wikitable")
-        if not tables:
-            print("Нет таблиц")
-            continue
-
         for t in tables:
             try:
                 df = pd.read_html(str(t))[0]
@@ -135,7 +112,6 @@ for i, href in enumerate(filtered, start=1):
             df.columns = [norm_col(c) for c in df.columns]
             out = pd.DataFrame()
             out["source_url"] = [page_url] * len(df)
-            out["context"] = [context] * len(df)
 
             def pick(cols):
                 for c in cols:
@@ -149,20 +125,6 @@ for i, href in enumerate(filtered, start=1):
 
             out["city"] = pick(["city", "town", "location"])
             out["cuisine_type"] = pick(["cuisine", "style"])
-
-            if "chef" in df.columns:
-                out["chef"] = df["chef"]
-            elif "head_chef" in df.columns:
-                out["chef"] = df["head_chef"]
-            elif "owner" in df.columns:
-                out["chef"] = df["owner"]
-            else:
-                row_texts = df.astype(str).agg(" ".join, axis=1)
-                chefs = []
-                for txt in row_texts:
-                    m = re.search(r"(?:chef|head chef|run by|by)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})", str(txt))
-                    chefs.append(m.group(1) if m else None)
-                out["chef"] = chefs
 
             year_col = None
             for c in ["year", "since", "first_awarded", "notes"]:
@@ -183,28 +145,17 @@ for i, href in enumerate(filtered, start=1):
 
             all_parts.append(out)
 
-    except Exception as e:
-        print("Ошибка:", e)
+    except:
+        pass
     time.sleep(0.1)
 
-# 4. Сохранение
 if not all_parts:
     print("Нет данных")
 else:
     combined = pd.concat(all_parts, ignore_index=True)
-    combined.drop_duplicates(subset=["restaurant_name", "context", "stars"], inplace=True)
-
-    total = len(combined)
-    years_found = combined["year_first_starred"].notna().sum()
-    chefs_found = combined["chef"].notna().sum()
-
-    print(f"Найдено годов: {years_found}/{total}, шефов: {chefs_found}/{total}")
-
-    top_chefs = combined["chef"].dropna().value_counts().head(10).reset_index()
-    top_chefs.columns = ["chef", "restaurant_count"]
-
-    with pd.ExcelWriter("michelin_europe_v3_simple.xlsx", engine="openpyxl") as writer:
+    combined.drop_duplicates(subset=["restaurant_name", "source_url", "stars"], inplace=True)
+    with pd.ExcelWriter("finalochka_stars.xlsx", engine="openpyxl") as writer:
         combined.to_excel(writer, sheet_name="Michelin Restaurants", index=False)
-        top_chefs.to_excel(writer, sheet_name="Top Chefs", index=False)
 
-    print(f"Готово. {len(combined)} строк сохранено в michelin_europe_v3_simple.xlsx")
+    print("Файл создан")
+    print("Строк:", len(combined))
